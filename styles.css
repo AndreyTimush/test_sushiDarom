@@ -211,3 +211,16 @@ tr:hover {
     flex: 1;
     min-width: 200px;
 }
+
+.sort-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.sort-link:hover {
+    text-decoration: underline;
+}
+
+.sort-arrow {
+    margin-left: 5px;
+}

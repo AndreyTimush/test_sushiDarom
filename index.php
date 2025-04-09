@@ -4,6 +4,8 @@ require 'config.php';
 $gender_filter = $_GET['gender'] ?? null;
 $min_age = isset($_GET['min_age']) ? (int)$_GET['min_age'] : null;
 $max_age = isset($_GET['max_age']) ? (int)$_GET['max_age'] : null;
+$sort_field = $_GET['sort'] ?? null;
+$sort_direction = $_GET['dir'] ?? 'asc';
 
 $edit_mode = isset($_GET['edit']);
 $cat_to_edit = null;
@@ -30,13 +32,14 @@ if (isset($_POST['action'])) {
     exit();
 }
 
-function getCats($gender = null, $min_age = null, $max_age = null)
+function getCats($gender = null, $min_age = null, $max_age = null, $sort_field = null, $sort_direction = 'asc')
 {
     global $pdo;
 
     $sql = "SELECT c.*, 
                    m.name as mother_name,
-                   GROUP_CONCAT(f.name SEPARATOR ', ') as fathers_names
+                   GROUP_CONCAT(f.name SEPARATOR ', ') as fathers_names,
+                   COUNT(ft.father_id) as fathers_count
             FROM cats c
             LEFT JOIN cats m ON c.mother_id = m.id
             LEFT JOIN fathers ft ON c.id = ft.kitten_id
@@ -65,6 +68,12 @@ function getCats($gender = null, $min_age = null, $max_age = null)
     }
 
     $sql .= " GROUP BY c.id";
+
+    $valid_sort_fields = ['name', 'age', 'fathers_count'];
+    if ($sort_field && in_array($sort_field, $valid_sort_fields)) {
+        $sql .= " ORDER BY " . $sort_field;
+        $sql .= $sort_direction === 'desc' ? ' DESC' : ' ASC';
+    }
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -150,7 +159,27 @@ function getFathers($kitten_id)
     return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
 }
 
-$cats = getCats($gender_filter, $min_age, $max_age);
+function buildQueryWithSort($field)
+{
+    global $gender_filter, $min_age, $max_age, $sort_field, $sort_direction;
+
+    $params = [];
+    if ($gender_filter) $params['gender'] = $gender_filter;
+    if ($min_age !== null) $params['min_age'] = $min_age;
+    if ($max_age !== null) $params['max_age'] = $max_age;
+
+    if ($sort_field === $field) {
+        $params['sort'] = $field;
+        $params['dir'] = $sort_direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        $params['sort'] = $field;
+        $params['dir'] = 'asc';
+    }
+
+    return http_build_query($params);
+}
+
+$cats = getCats($gender_filter, $min_age, $max_age, $sort_field, $sort_direction);
 ?>
 
 <!DOCTYPE html>
@@ -262,11 +291,32 @@ $cats = getCats($gender_filter, $min_age, $max_age);
                 <thead>
                     <tr>
                         <th>ID</th>
-                        <th>Кличка</th>
+                        <th>
+                            <a href="?<?= buildQueryWithSort('name') ?>" class="sort-link">
+                                Кличка
+                                <?php if ($sort_field === 'name'): ?>
+                                    <span class="sort-arrow"><?= $sort_direction === 'asc' ? '↑' : '↓' ?></span>
+                                <?php endif; ?>
+                            </a>
+                        </th>
                         <th>Пол</th>
-                        <th>Возраст</th>
+                        <th>
+                            <a href="?<?= buildQueryWithSort('age') ?>" class="sort-link">
+                                Возраст
+                                <?php if ($sort_field === 'age'): ?>
+                                    <span class="sort-arrow"><?= $sort_direction === 'asc' ? '↑' : '↓' ?></span>
+                                <?php endif; ?>
+                            </a>
+                        </th>
                         <th>Мать</th>
-                        <th>Отцы</th>
+                        <th>
+                            <a href="?<?= buildQueryWithSort('fathers_count') ?>" class="sort-link">
+                                Отцы (кол-во)
+                                <?php if ($sort_field === 'fathers_count'): ?>
+                                    <span class="sort-arrow"><?= $sort_direction === 'asc' ? '↑' : '↓' ?></span>
+                                <?php endif; ?>
+                            </a>
+                        </th>
                         <th>Действия</th>
                     </tr>
                 </thead>
@@ -278,7 +328,7 @@ $cats = getCats($gender_filter, $min_age, $max_age);
                             <td><?= $cat['gender'] == 'male' ? 'Кот' : 'Кошка' ?></td>
                             <td><?= $cat['age'] ?></td>
                             <td><?= htmlspecialchars($cat['mother_name'] ?? '') ?></td>
-                            <td><?= htmlspecialchars($cat['fathers_names'] ?? '') ?></td>
+                            <td><?= htmlspecialchars($cat['fathers_names'] ?? '') ?> (<?= $cat['fathers_count'] ?>)</td>
                             <td>
                                 <a href="?edit=<?= $cat['id'] ?>" class="btn btn-sm">Редактировать</a>
                                 <form method="post" style="display: inline;">
